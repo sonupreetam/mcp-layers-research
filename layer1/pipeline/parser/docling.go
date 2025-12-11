@@ -1,32 +1,36 @@
 package parser
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/ossf/gemara/layer1/pipeline/types"
 )
 
-// DoclingParser uses docling-serve for PDF parsing
+// DoclingParser uses docling Python library directly for PDF parsing
 type DoclingParser struct {
 	ParserBase
+	scriptPath string
 }
 
 // NewDoclingParser creates a new Docling parser
 func NewDoclingParser(config types.ParserConfig) (*DoclingParser, error) {
-	if config.Endpoint == "" {
-		config.Endpoint = "http://localhost:5001/api/v1/convert"
-	}
-	
 	parser := &DoclingParser{}
 	if err := parser.Configure(config); err != nil {
 		return nil, err
 	}
-	
+
+	// Find the Python script path relative to this Go file
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("failed to get current file path")
+	}
+	parser.scriptPath = filepath.Join(filepath.Dir(filename), "docling_convert.py")
+
 	return parser, nil
 }
 
@@ -35,159 +39,228 @@ func (p *DoclingParser) Name() string {
 	return "docling"
 }
 
-// DoclingRequest represents the request to docling-serve
-type DoclingRequest struct {
-	File    string                 `json:"file,omitempty"`
-	Content string                 `json:"content,omitempty"` // base64 encoded content
-	Options map[string]interface{} `json:"options,omitempty"`
+// DoclingConvertResponse represents the response from the Python script
+type DoclingConvertResponse struct {
+	Status   string          `json:"status"`
+	Document DoclingDocument `json:"document"`
+	Errors   []DoclingError  `json:"errors"`
 }
 
-// DoclingResponse represents the response from docling-serve
-type DoclingResponse struct {
-	Success bool                   `json:"success"`
-	Error   string                 `json:"error,omitempty"`
-	Pages   []DoclingPage          `json:"pages"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+// DoclingError represents an error from docling
+type DoclingError struct {
+	ErrorMessage string `json:"error_message"`
 }
 
-// DoclingPage represents a page from docling
-type DoclingPage struct {
-	PageNumber int             `json:"page_number"`
-	Width      float64         `json:"width"`
-	Height     float64         `json:"height"`
-	Elements   []DoclingElement `json:"elements"`
+// DoclingDocument represents the converted document
+type DoclingDocument struct {
+	Name   string                     `json:"name"`
+	Texts  []DoclingTextItem          `json:"texts"`
+	Tables []DoclingTable             `json:"tables"`
+	Pages  map[string]DoclingPageInfo `json:"pages"`
 }
 
-// DoclingElement represents an element on a page
-type DoclingElement struct {
-	Type       string                 `json:"type"`
-	Text       string                 `json:"text"`
-	BBox       []float64              `json:"bbox,omitempty"`
-	Properties map[string]interface{} `json:"properties,omitempty"`
+// DoclingTextItem represents a text element
+type DoclingTextItem struct {
+	SelfRef    string        `json:"self_ref"`
+	Label      string        `json:"label"`
+	Text       string        `json:"text"`
+	Prov       []DoclingProv `json:"prov"`
+	Level      int           `json:"level,omitempty"`
+	Marker     string        `json:"marker,omitempty"`
+	Enumerated bool          `json:"enumerated,omitempty"`
 }
 
-// Parse extracts content from a PDF file using docling-serve
+// DoclingProv contains provenance info (page/bbox)
+type DoclingProv struct {
+	PageNo int         `json:"page_no"`
+	BBox   DoclingBBox `json:"bbox"`
+}
+
+// DoclingBBox represents a bounding box
+type DoclingBBox struct {
+	L float64 `json:"l"`
+	T float64 `json:"t"`
+	R float64 `json:"r"`
+	B float64 `json:"b"`
+}
+
+// DoclingTable represents a table
+type DoclingTable struct {
+	SelfRef string        `json:"self_ref"`
+	Label   string        `json:"label"`
+	Prov    []DoclingProv `json:"prov"`
+}
+
+// DoclingPageInfo contains page dimensions
+type DoclingPageInfo struct {
+	PageNo int         `json:"page_no"`
+	Size   DoclingSize `json:"size"`
+}
+
+// DoclingSize represents page dimensions
+type DoclingSize struct {
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+// Parse extracts content from a PDF file using docling Python library
 func (p *DoclingParser) Parse(filePath string) (*types.ParsedDocument, error) {
-	// Prepare request
-	req := DoclingRequest{
-		Options: map[string]interface{}{
-			"extract_images": false,
-			"extract_tables": true,
-		},
-	}
-
-	// Create multipart form data
-	var requestBody bytes.Buffer
-	writer := io.MultiWriter(&requestBody)
-	
-	// For simplicity, we'll send the file path
-	// In production, you'd want to send the file content
-	reqData, err := json.Marshal(map[string]interface{}{
-		"file_path": filePath,
-		"options":   req.Options,
-	})
+	// Get absolute path
+	absPath, err := filepath.Abs(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
-	
-	writer.Write(reqData)
 
-	// Make HTTP request to docling-serve
-	resp, err := http.Post(p.config.Endpoint, "application/json", &requestBody)
+	// Run the Python script
+	cmd := exec.Command("python3", p.scriptPath, absPath)
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to call docling-serve: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Parse response
-	var doclingResp DoclingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&doclingResp); err != nil {
-		return nil, fmt.Errorf("failed to decode docling response: %w", err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("docling conversion failed: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("failed to run docling: %w", err)
 	}
 
-	if !doclingResp.Success {
-		return nil, fmt.Errorf("docling parsing failed: %s", doclingResp.Error)
+	// Parse JSON output
+	var resp DoclingConvertResponse
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse docling output: %w", err)
+	}
+
+	if resp.Status != "success" {
+		errMsgs := ""
+		for _, e := range resp.Errors {
+			errMsgs += e.ErrorMessage + "; "
+		}
+		return nil, fmt.Errorf("docling conversion failed: %s", errMsgs)
 	}
 
 	// Convert to ParsedDocument
-	doc := &types.ParsedDocument{
-		Metadata: types.ParsedMetadata{
-			SourceFile: filePath,
-			Parser:     "docling-v1.0",
-			ParsedAt:   time.Now(),
-		},
-		Pages: make([]types.Page, 0, len(doclingResp.Pages)),
-	}
-
-	for _, page := range doclingResp.Pages {
-		parsedPage := types.Page{
-			PageNumber: page.PageNumber,
-			Blocks:     make([]types.Block, 0, len(page.Elements)),
-		}
-
-		for _, elem := range page.Elements {
-			block := p.convertElement(elem)
-			parsedPage.Blocks = append(parsedPage.Blocks, block)
-		}
-
-		doc.Pages = append(doc.Pages, parsedPage)
-	}
-
+	doc := p.convertDocument(filePath, &resp.Document)
 	return doc, nil
 }
 
-// convertElement converts a DoclingElement to a Block
-func (p *DoclingParser) convertElement(elem DoclingElement) types.Block {
-	block := types.Block{
-		Text: elem.Text,
+// convertDocument converts DoclingDocument to ParsedDocument
+func (p *DoclingParser) convertDocument(filePath string, docling *DoclingDocument) *types.ParsedDocument {
+	doc := &types.ParsedDocument{
+		Metadata: types.ParsedMetadata{
+			SourceFile: filePath,
+			Parser:     "docling-v2.0",
+			ParsedAt:   time.Now(),
+		},
+		Pages: []types.Page{},
 	}
 
-	// Convert type
-	switch elem.Type {
-	case "heading", "title":
-		block.Type = types.BlockTypeHeading
-		if level, ok := elem.Properties["level"].(float64); ok {
-			block.Level = int(level)
+	// Group blocks by page
+	pageBlocks := make(map[int][]types.Block)
+
+	for _, text := range docling.Texts {
+		block := p.convertTextItem(&text)
+
+		// Get page number from provenance
+		pageNo := 1
+		if len(text.Prov) > 0 {
+			pageNo = text.Prov[0].PageNo
 		}
-	case "paragraph", "text":
-		block.Type = types.BlockTypeParagraph
-	case "list", "list-item":
-		block.Type = types.BlockTypeList
-		if marker, ok := elem.Properties["marker"].(string); ok {
-			block.ListItem = &types.ListItem{
-				Marker: marker,
-				Type:   "unordered",
+
+		pageBlocks[pageNo] = append(pageBlocks[pageNo], block)
+	}
+
+	// Convert tables
+	for _, table := range docling.Tables {
+		block := types.Block{
+			Type: types.BlockTypeTable,
+			Text: "[Table]",
+		}
+
+		pageNo := 1
+		if len(table.Prov) > 0 {
+			pageNo = table.Prov[0].PageNo
+			block.BBox = &types.BBox{
+				X1: table.Prov[0].BBox.L,
+				Y1: table.Prov[0].BBox.T,
+				X2: table.Prov[0].BBox.R,
+				Y2: table.Prov[0].BBox.B,
 			}
 		}
-	case "table":
-		block.Type = types.BlockTypeTable
+
+		pageBlocks[pageNo] = append(pageBlocks[pageNo], block)
+	}
+
+	// Find max page number
+	maxPage := 0
+	for pageNo := range pageBlocks {
+		if pageNo > maxPage {
+			maxPage = pageNo
+		}
+	}
+
+	for _, pageInfo := range docling.Pages {
+		if pageInfo.PageNo > maxPage {
+			maxPage = pageInfo.PageNo
+		}
+	}
+
+	// Create pages
+	for i := 1; i <= maxPage; i++ {
+		page := types.Page{
+			PageNumber: i,
+			Blocks:     pageBlocks[i],
+		}
+		doc.Pages = append(doc.Pages, page)
+	}
+
+	return doc
+}
+
+// convertTextItem converts a DoclingTextItem to a Block
+func (p *DoclingParser) convertTextItem(item *DoclingTextItem) types.Block {
+	block := types.Block{
+		Text: item.Text,
+	}
+
+	// Convert label to block type
+	switch item.Label {
+	case "title", "section_header":
+		block.Type = types.BlockTypeHeading
+		block.Level = item.Level
+		if block.Level == 0 {
+			block.Level = 1
+		}
+		block.FontWeight = "bold"
+	case "paragraph", "text":
+		block.Type = types.BlockTypeParagraph
+	case "list_item":
+		block.Type = types.BlockTypeList
+		listType := "unordered"
+		if item.Enumerated {
+			listType = "ordered"
+		}
+		block.ListItem = &types.ListItem{
+			Marker: item.Marker,
+			Type:   listType,
+			Level:  1,
+		}
+	case "caption":
+		block.Type = types.BlockTypeParagraph
+	case "page_header", "page_footer":
+		block.Type = types.BlockTypeParagraph
 	case "code":
 		block.Type = types.BlockTypeCode
 	default:
 		block.Type = types.BlockTypeParagraph
 	}
 
-	// Convert bbox
-	if len(elem.BBox) == 4 {
+	// Add bounding box if available
+	if len(item.Prov) > 0 {
+		prov := item.Prov[0]
 		block.BBox = &types.BBox{
-			X1: elem.BBox[0],
-			Y1: elem.BBox[1],
-			X2: elem.BBox[2],
-			Y2: elem.BBox[3],
+			X1: prov.BBox.L,
+			Y1: prov.BBox.T,
+			X2: prov.BBox.R,
+			Y2: prov.BBox.B,
 		}
-	}
-
-	// Extract font properties
-	if fontSize, ok := elem.Properties["font_size"].(float64); ok {
-		block.FontSize = fontSize
-	}
-	if fontWeight, ok := elem.Properties["font_weight"].(string); ok {
-		block.FontWeight = fontWeight
-	}
-	if fontName, ok := elem.Properties["font_name"].(string); ok {
-		block.FontName = fontName
 	}
 
 	return block
 }
-

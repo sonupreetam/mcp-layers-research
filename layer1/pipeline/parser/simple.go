@@ -48,7 +48,7 @@ func (p *SimpleParser) Parse(filePath string) (*types.ParsedDocument, error) {
 	textFile := filepath.Join(tempDir, fmt.Sprintf("parsed-%d.txt", time.Now().Unix()))
 	defer func() {
 		if !p.config.KeepTempFiles {
-			os.Remove(textFile)
+			_ = os.Remove(textFile) // Ignore cleanup errors
 		}
 	}()
 
@@ -85,6 +85,9 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 	headingRegex := regexp.MustCompile(`^([0-9]+\.)+\s+[A-Z].*$|^[A-Z][A-Z\s]+$`)
 	listRegex := regexp.MustCompile(`^\s*([0-9]+\.|[a-z]\.|•|\*|-)\s+`)
 	emptyRegex := regexp.MustCompile(`^\s*$`)
+	
+	// Pattern to detect Table of Contents lines with dotted leaders
+	tocDotPattern := regexp.MustCompile(`\.{4,}`)  // 4+ consecutive dots
 	
 	var pages []types.Page
 	currentPage := types.Page{
@@ -128,6 +131,23 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 				currentBlock = nil
 				currentText.Reset()
 			}
+			continue
+		}
+		
+		// Skip or clean Table of Contents lines (lines with dotted leaders)
+		if tocDotPattern.MatchString(line) {
+			// This looks like a TOC line - skip it entirely
+			continue
+		}
+		
+		// Skip page headers, footers, copyright notices, table headers
+		if isPageHeaderFooter(line) || isTableHeader(line) {
+			continue
+		}
+		
+		// Clean the line (normalize whitespace, remove TOC dots, etc.)
+		line = cleanText(line)
+		if line == "" {
 			continue
 		}
 		
@@ -299,3 +319,99 @@ func ExtractPDFMetadata(filePath string) (map[string]string, error) {
 	return metadata, nil
 }
 
+// cleanTOCDots removes dotted leader patterns commonly found in tables of contents
+// These patterns look like: "Chapter 1 .......... 15" or "1.1 Overview ... 23"
+func cleanTOCDots(line string) string {
+	// Pattern: multiple dots (3+) optionally followed by spaces and page numbers
+	dotPattern := regexp.MustCompile(`\s*\.{3,}[\s\d]*$`)
+	
+	// Remove trailing dot patterns with page numbers
+	cleaned := dotPattern.ReplaceAllString(line, "")
+	
+	// Also clean inline dots that separate sections
+	// Pattern: space + 3+ dots + space
+	inlineDotPattern := regexp.MustCompile(`\s+\.{3,}\s+`)
+	cleaned = inlineDotPattern.ReplaceAllString(cleaned, " - ")
+	
+	return strings.TrimSpace(cleaned)
+}
+
+// isPageHeaderFooter checks if a line is a page header or footer
+func isPageHeaderFooter(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	
+	// Common page footer patterns
+	patterns := []string{
+		`(?i)page\s+\d+`,                               // "Page 2", "page 123"
+		`(?i)©\s*\d{4}`,                                // Copyright notice
+		`(?i)all\s+rights\s+reserved`,                  // Rights notice
+		`(?i)^\s*\d+\s*$`,                              // Just a page number
+	}
+	
+	for _, pattern := range patterns {
+		if matched, _ := regexp.MatchString(pattern, trimmed); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isTableHeader checks if a line appears to be a table header row
+func isTableHeader(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	
+	// Common table header patterns with lots of spacing
+	// e.g., "Date            Version                Description"
+	tableHeaderPatterns := []string{
+		`(?i)^date\s{4,}version`,                       // Document change table
+		`(?i)^requirement\s{4,}testing`,               // Testing procedures table
+		`(?i)^pci\s+dss\s+requirement`,                // Requirements table
+		`(?i)^guidance\s{4,}`,                         // Guidance tables
+	}
+	
+	for _, pattern := range tableHeaderPatterns {
+		if matched, _ := regexp.MatchString(pattern, trimmed); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// normalizeWhitespace collapses multiple spaces into single spaces
+func normalizeWhitespace(text string) string {
+	// Replace multiple spaces with single space
+	multiSpacePattern := regexp.MustCompile(`\s{3,}`)
+	cleaned := multiSpacePattern.ReplaceAllString(text, " ")
+	
+	// Clean up spacing around punctuation
+	cleaned = strings.TrimSpace(cleaned)
+	
+	return cleaned
+}
+
+// cleanText applies all text cleaning operations
+func cleanText(text string) string {
+	// Skip if empty
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	
+	// Check if this is noise we should skip entirely
+	if isPageHeaderFooter(text) {
+		return ""
+	}
+	
+	if isTableHeader(text) {
+		return ""
+	}
+	
+	// Clean TOC dots
+	cleaned := cleanTOCDots(text)
+	
+	// Normalize whitespace
+	cleaned = normalizeWhitespace(cleaned)
+	
+	return cleaned
+}
