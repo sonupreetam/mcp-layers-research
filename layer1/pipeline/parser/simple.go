@@ -13,6 +13,28 @@ import (
 	"github.com/ossf/gemara/layer1/pipeline/types"
 )
 
+// Pre-compiled regexes for performance
+var (
+	// Matches numbered headings like "1.", "1.1", "1.1.1", "1.1.1.1" followed by uppercase text
+	// Also matches ALL CAPS headings
+	headingRegex = regexp.MustCompile(`^([0-9]+\.)*[0-9]+\.?\s+[A-Z].*$|^[A-Z][A-Z\s]+$`)
+
+	// Matches list item markers
+	listRegex = regexp.MustCompile(`^\s*([0-9]+\.|[a-z]\.|•|\*|-)\s+`)
+
+	// Matches empty lines
+	emptyRegex = regexp.MustCompile(`^\s*$`)
+
+	// Matches TOC lines with dotted leaders (4+ consecutive dots)
+	tocDotPattern = regexp.MustCompile(`\.{4,}`)
+
+	// Matches numbered prefix for heading level detection (e.g., "1.", "1.1.", "1.1.1")
+	numberedPrefixRegex = regexp.MustCompile(`^([0-9]+\.)*[0-9]+`)
+
+	// Matches ordered list markers
+	orderedListRegex = regexp.MustCompile(`^[0-9]+\.`)
+)
+
 // SimpleParser uses pdftotext (poppler-utils) for basic PDF parsing
 type SimpleParser struct {
 	ParserBase
@@ -48,7 +70,7 @@ func (p *SimpleParser) Parse(filePath string) (*types.ParsedDocument, error) {
 	textFile := filepath.Join(tempDir, fmt.Sprintf("parsed-%d.txt", time.Now().Unix()))
 	defer func() {
 		if !p.config.KeepTempFiles {
-			os.Remove(textFile)
+			_ = os.Remove(textFile) // Ignore cleanup errors
 		}
 	}()
 
@@ -80,12 +102,7 @@ func (p *SimpleParser) Parse(filePath string) (*types.ParsedDocument, error) {
 // parseTextContent converts plain text into structured blocks
 func (p *SimpleParser) parseTextContent(content string) []types.Page {
 	lines := strings.Split(content, "\n")
-	
-	// Simple heuristics for structure detection
-	headingRegex := regexp.MustCompile(`^([0-9]+\.)+\s+[A-Z].*$|^[A-Z][A-Z\s]+$`)
-	listRegex := regexp.MustCompile(`^\s*([0-9]+\.|[a-z]\.|•|\*|-)\s+`)
-	emptyRegex := regexp.MustCompile(`^\s*$`)
-	
+
 	var pages []types.Page
 	currentPage := types.Page{
 		PageNumber: 1,
@@ -131,6 +148,23 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 			continue
 		}
 		
+		// Skip or clean Table of Contents lines (lines with dotted leaders)
+		if tocDotPattern.MatchString(line) {
+			// This looks like a TOC line - skip it entirely
+			continue
+		}
+		
+		// Skip page headers, footers, copyright notices, table headers
+		if isPageHeaderFooter(line) || isTableHeader(line) {
+			continue
+		}
+		
+		// Clean the line (normalize whitespace, remove TOC dots, etc.)
+		line = cleanText(line)
+		if line == "" {
+			continue
+		}
+		
 		// Detect headings
 		if headingRegex.MatchString(strings.TrimSpace(line)) {
 			// Flush previous block
@@ -166,10 +200,10 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 				currentPage.Blocks = append(currentPage.Blocks, *currentBlock)
 				currentText.Reset()
 			}
-			
+
 			// Create new list block
 			listType := "unordered"
-			if regexp.MustCompile(`^[0-9]+\.`).MatchString(matches[1]) {
+			if orderedListRegex.MatchString(matches[1]) {
 				listType = "ordered"
 			}
 			
@@ -215,14 +249,16 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 
 // detectHeadingLevel determines the heading level based on formatting
 func (p *SimpleParser) detectHeadingLevel(line string) int {
-	// Check for numbered headings (1., 1.1., 1.1.1., etc.)
-	if matches := regexp.MustCompile(`^([0-9]+\.)+`).FindString(line); matches != "" {
+	// Check for numbered headings (1., 1.1, 1.1.1, etc.)
+	if matches := numberedPrefixRegex.FindString(line); matches != "" {
+		// Count the dots to determine level (1.1 = 2, 1.1.1 = 3, etc.)
 		dots := strings.Count(matches, ".")
-		if dots > 0 && dots <= 6 {
-			return dots
+		level := dots + 1 // "1" = level 1, "1.1" = level 2, etc.
+		if level > 0 && level <= 6 {
+			return level
 		}
 	}
-	
+
 	// All caps likely level 1 or 2
 	trimmed := strings.TrimSpace(line)
 	if strings.ToUpper(trimmed) == trimmed {
@@ -231,7 +267,7 @@ func (p *SimpleParser) detectHeadingLevel(line string) int {
 		}
 		return 2
 	}
-	
+
 	return 3
 }
 
@@ -299,3 +335,92 @@ func ExtractPDFMetadata(filePath string) (map[string]string, error) {
 	return metadata, nil
 }
 
+// cleanTOCDots removes dotted leader patterns commonly found in tables of contents
+// These patterns look like: "Chapter 1 .......... 15" or "1.1 Overview ... 23"
+func cleanTOCDots(line string) string {
+	// Pattern: multiple dots (3+) optionally followed by spaces and page numbers
+	dotPattern := regexp.MustCompile(`\s*\.{3,}[\s\d]*$`)
+	
+	// Remove trailing dot patterns with page numbers
+	cleaned := dotPattern.ReplaceAllString(line, "")
+	
+	// Also clean inline dots that separate sections
+	// Pattern: space + 3+ dots + space
+	inlineDotPattern := regexp.MustCompile(`\s+\.{3,}\s+`)
+	cleaned = inlineDotPattern.ReplaceAllString(cleaned, " - ")
+	
+	return strings.TrimSpace(cleaned)
+}
+
+// isPageHeaderFooter checks if a line is a page header or footer
+func isPageHeaderFooter(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	
+	// Common page footer patterns
+	patterns := []string{
+		`(?i)page\s+\d+`,                               // "Page 2", "page 123"
+		`(?i)©\s*\d{4}`,                                // Copyright notice
+		`(?i)all\s+rights\s+reserved`,                  // Rights notice
+		`(?i)^\s*\d+\s*$`,                              // Just a page number
+	}
+	
+	for _, pattern := range patterns {
+		if matched, _ := regexp.MatchString(pattern, trimmed); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isTableHeader checks if a line appears to be a table header row
+func isTableHeader(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	
+	// Common table header patterns with lots of spacing
+	// e.g., "Date            Version                Description"
+	tableHeaderPatterns := []string{
+		`(?i)^date\s{4,}version`,                       // Document change table
+		`(?i)^requirement\s{4,}testing`,               // Testing procedures table
+		`(?i)^pci\s+dss\s+requirement`,                // Requirements table
+		`(?i)^guidance\s{4,}`,                         // Guidance tables
+	}
+	
+	for _, pattern := range tableHeaderPatterns {
+		if matched, _ := regexp.MatchString(pattern, trimmed); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// normalizeWhitespace collapses multiple spaces into single spaces
+func normalizeWhitespace(text string) string {
+	// Replace multiple spaces with single space
+	multiSpacePattern := regexp.MustCompile(`\s{3,}`)
+	cleaned := multiSpacePattern.ReplaceAllString(text, " ")
+	
+	// Clean up spacing around punctuation
+	cleaned = strings.TrimSpace(cleaned)
+	
+	return cleaned
+}
+
+// cleanText applies all text cleaning operations
+// Note: isPageHeaderFooter and isTableHeader checks are done in parseTextContent
+// before this function is called, so we don't duplicate them here
+func cleanText(text string) string {
+	// Skip if empty
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+
+	// Clean TOC dots
+	cleaned := cleanTOCDots(text)
+
+	// Normalize whitespace
+	cleaned = normalizeWhitespace(cleaned)
+
+	return cleaned
+}
