@@ -104,7 +104,7 @@ func (e *OpenAIEnhancer) callOpenAI(ctx context.Context, prompt string) (string,
 	if err != nil {
 		return "", fmt.Errorf("API request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	
 	var openAIResp OpenAIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&openAIResp); err != nil {
@@ -335,6 +335,8 @@ type AnthropicResponse struct {
 }
 
 // callAnthropic makes a request to the Anthropic API
+//
+//nolint:unused // Reserved for future Anthropic integration
 func (e *AnthropicEnhancer) callAnthropic(ctx context.Context, prompt string) (string, error) {
 	req := AnthropicRequest{
 		Model: e.config.Model,
@@ -363,7 +365,7 @@ func (e *AnthropicEnhancer) callAnthropic(ctx context.Context, prompt string) (s
 	if err != nil {
 		return "", fmt.Errorf("API request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	
 	var anthropicResp AnthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
@@ -371,7 +373,7 @@ func (e *AnthropicEnhancer) callAnthropic(ctx context.Context, prompt string) (s
 	}
 	
 	if anthropicResp.Error != nil {
-		return "", fmt.Errorf("Anthropic API error: %s", anthropicResp.Error.Message)
+		return "", fmt.Errorf("anthropic API error: %s", anthropicResp.Error.Message)
 	}
 	
 	if len(anthropicResp.Content) == 0 {
@@ -394,4 +396,5 @@ func (e *AnthropicEnhancer) ValidateMetadata(ctx context.Context, meta *types.Do
 func (e *AnthropicEnhancer) EnhanceGuideline(ctx context.Context, guideline *types.SegmentGuideline) (*types.EnhancementResult, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
+
 
