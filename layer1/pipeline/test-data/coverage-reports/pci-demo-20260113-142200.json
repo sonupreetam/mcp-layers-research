@@ -1,0 +1,41 @@
+{
+  "document_id": "pci-demo",
+  "timestamp": "2026-01-13T14:22:00.009282+01:00",
+  "source_stats": {
+    "total_pages": 137,
+    "total_blocks": 1168,
+    "blocks_by_type": {
+      "heading": 293,
+      "list": 462,
+      "paragraph": 413
+    },
+    "total_characters": 343409
+  },
+  "captured_content": {
+    "categories": 36,
+    "guidelines": 79,
+    "parts": 167,
+    "recommendations": 180,
+    "fields_captured": [
+      "metadata.id",
+      "metadata.title",
+      "metadata.description",
+      "metadata.author",
+      "metadata.document_type"
+    ],
+    "fields_empty": []
+  },
+  "coverage_metrics": {
+    "block_coverage": 100,
+    "character_coverage": 0,
+    "required_fields_covered": 4,
+    "required_fields_total": 4,
+    "optional_fields_covered": 2,
+    "optional_fields_total": 4,
+    "overall_score": 90,
+    "quality_indicators": {
+      "content_capture": "comprehensive",
+      "overall": "excellent"
+    }
+  }
+}

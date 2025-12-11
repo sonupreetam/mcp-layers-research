@@ -75,6 +75,42 @@ type SegmentedDocument struct {
 	DocumentMetadata DocumentMetadata  `json:"document_metadata" yaml:"document_metadata"`
 	FrontMatter      string            `json:"front_matter,omitempty" yaml:"front_matter,omitempty"`
 	Categories       []SegmentCategory `json:"categories" yaml:"categories"`
+	// Coverage tracking - what couldn't be captured by the schema
+	UnmappedContent  []UnmappedContent `json:"unmapped_content,omitempty" yaml:"unmapped_content,omitempty"`
+	CoverageStats    *CoverageStats    `json:"coverage_stats,omitempty" yaml:"coverage_stats,omitempty"`
+}
+
+// UnmappedContent represents content from source that couldn't fit in the schema
+type UnmappedContent struct {
+	SourceLocation string   `json:"source_location" yaml:"source_location"` // e.g., "page:5, block:12"
+	ContentType    string   `json:"content_type" yaml:"content_type"`       // e.g., "table", "figure", "appendix"
+	Content        string   `json:"content" yaml:"content"`                 // The actual content
+	Reason         string   `json:"reason" yaml:"reason"`                   // Why it couldn't be mapped
+	SuggestedField string   `json:"suggested_field,omitempty" yaml:"suggested_field,omitempty"` // Schema enhancement suggestion
+	Tags           []string `json:"tags,omitempty" yaml:"tags,omitempty"`   // Classification tags
+}
+
+// CoverageStats provides statistics on schema coverage
+type CoverageStats struct {
+	TotalSourceBlocks   int     `json:"total_source_blocks" yaml:"total_source_blocks"`
+	MappedBlocks        int     `json:"mapped_blocks" yaml:"mapped_blocks"`
+	UnmappedBlocks      int     `json:"unmapped_blocks" yaml:"unmapped_blocks"`
+	CoveragePercentage  float64 `json:"coverage_percentage" yaml:"coverage_percentage"`
+	
+	// Breakdown by content type
+	UnmappedByType      map[string]int `json:"unmapped_by_type,omitempty" yaml:"unmapped_by_type,omitempty"`
+	
+	// Schema gap analysis
+	SchemaGaps          []SchemaGap `json:"schema_gaps,omitempty" yaml:"schema_gaps,omitempty"`
+}
+
+// SchemaGap represents a potential gap in the schema
+type SchemaGap struct {
+	SuggestedField  string `json:"suggested_field" yaml:"suggested_field"`   // e.g., "appendix", "figure", "cross_reference"
+	Description     string `json:"description" yaml:"description"`
+	OccurrenceCount int    `json:"occurrence_count" yaml:"occurrence_count"` // How many times this gap was encountered
+	Examples        []string `json:"examples,omitempty" yaml:"examples,omitempty"` // Sample content that couldn't be mapped
+	Priority        string `json:"priority" yaml:"priority"`                 // "high", "medium", "low"
 }
 
 // SegmentedMetadata contains information about the segmentation process

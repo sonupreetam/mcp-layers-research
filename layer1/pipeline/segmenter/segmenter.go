@@ -176,12 +176,12 @@ func (s *GenericSegmenter) extractMetadata(doc *types.ParsedDocument) types.Docu
 			
 			// Try to extract title
 			if meta.Title == "" {
-				for _, pattern := range s.rules.TitlePatterns {
-					if matches := pattern.FindStringSubmatch(text); matches != nil && len(matches) > 1 {
-						meta.Title = strings.TrimSpace(matches[1])
-						break
-					}
+			for _, pattern := range s.rules.TitlePatterns {
+				if matches := pattern.FindStringSubmatch(text); len(matches) > 1 {
+					meta.Title = strings.TrimSpace(matches[1])
+					break
 				}
+			}
 				
 				// If no pattern match, use first heading
 				if meta.Title == "" && block.Type == types.BlockTypeHeading && block.Level == 1 {
@@ -191,32 +191,32 @@ func (s *GenericSegmenter) extractMetadata(doc *types.ParsedDocument) types.Docu
 			
 			// Try to extract version
 			if meta.Version == "" {
-				for _, pattern := range s.rules.VersionPatterns {
-					if matches := pattern.FindStringSubmatch(text); matches != nil && len(matches) > 1 {
-						meta.Version = matches[1]
-						break
-					}
+			for _, pattern := range s.rules.VersionPatterns {
+				if matches := pattern.FindStringSubmatch(text); len(matches) > 1 {
+					meta.Version = matches[1]
+					break
 				}
+			}
 			}
 			
 			// Try to extract author
 			if meta.Author == "" {
-				for _, pattern := range s.rules.AuthorPatterns {
-					if matches := pattern.FindStringSubmatch(text); matches != nil && len(matches) > 1 {
-						meta.Author = strings.TrimSpace(matches[1])
-						break
-					}
+			for _, pattern := range s.rules.AuthorPatterns {
+				if matches := pattern.FindStringSubmatch(text); len(matches) > 1 {
+					meta.Author = strings.TrimSpace(matches[1])
+					break
 				}
+			}
 			}
 			
 			// Try to extract publication date
 			if meta.PublicationDate == "" {
-				for _, pattern := range s.rules.PublicationPatterns {
-					if matches := pattern.FindStringSubmatch(text); matches != nil && len(matches) >= 1 {
-						meta.PublicationDate = strings.TrimSpace(matches[len(matches)-1])
-						break
-					}
+			for _, pattern := range s.rules.PublicationPatterns {
+				if matches := pattern.FindStringSubmatch(text); len(matches) >= 1 {
+					meta.PublicationDate = strings.TrimSpace(matches[len(matches)-1])
+					break
 				}
+			}
 			}
 		}
 	}
@@ -230,6 +230,9 @@ func (s *GenericSegmenter) extractMetadata(doc *types.ParsedDocument) types.Docu
 	}
 	if meta.Description == "" {
 		meta.Description = "Automatically extracted from PDF"
+	}
+	if meta.DocumentType == "" {
+		meta.DocumentType = "Standard" // Default to Standard for generic documents
 	}
 	
 	return meta
@@ -277,6 +280,10 @@ func (s *GenericSegmenter) extractCategories(doc *types.ParsedDocument) []types.
 	var currentGuideline *types.SegmentGuideline
 	var currentText strings.Builder
 	
+	// Track seen IDs to ensure uniqueness
+	seenCategoryIDs := make(map[string]int)
+	seenGuidelineIDs := make(map[string]int)
+	
 	for _, page := range doc.Pages {
 		for _, block := range page.Blocks {
 			text := block.Text
@@ -297,10 +304,21 @@ func (s *GenericSegmenter) extractCategories(doc *types.ParsedDocument) []types.
 					categories = append(categories, *currentCategory)
 				}
 				
-				// Start new category
+				// Generate unique category ID
+				baseID := matches[1]
+				uniqueID := makeUniqueID(baseID, seenCategoryIDs)
+				
+				// Start new category with title as default description
+				title := strings.TrimSpace(matches[2])
+				description := title
+				if len(description) > 200 {
+					description = description[:197] + "..."
+				}
+				
 				currentCategory = &types.SegmentCategory{
-					ID:    matches[1],
-					Title: strings.TrimSpace(matches[2]),
+					ID:          uniqueID,
+					Title:       title,
+					Description: description,
 				}
 				currentGuideline = nil
 				continue
@@ -318,9 +336,13 @@ func (s *GenericSegmenter) extractCategories(doc *types.ParsedDocument) []types.
 					currentCategory.Guidelines = append(currentCategory.Guidelines, *currentGuideline)
 				}
 				
+				// Generate unique guideline ID
+				baseID := matches[1]
+				uniqueID := makeUniqueID(baseID, seenGuidelineIDs)
+				
 				// Start new guideline
 				currentGuideline = &types.SegmentGuideline{
-					ID:    matches[1],
+					ID:    uniqueID,
 					Title: strings.TrimSpace(matches[2]),
 				}
 				continue
@@ -329,8 +351,13 @@ func (s *GenericSegmenter) extractCategories(doc *types.ParsedDocument) []types.
 			// Check for part (e.g., "1.1.1 Part Text")
 			if matches := s.rules.PartPattern.FindStringSubmatch(text); matches != nil {
 				if currentGuideline != nil {
+					// Parts use the guideline's ID context for uniqueness
+					partID := matches[1]
+					if currentGuideline.ID != "" {
+						partID = currentGuideline.ID + "." + strings.TrimPrefix(matches[1], currentGuideline.ID+".")
+					}
 					part := types.SegmentPart{
-						ID:   matches[1],
+						ID:   partID,
 						Text: strings.TrimSpace(matches[2]),
 					}
 					currentGuideline.Parts = append(currentGuideline.Parts, part)
@@ -363,6 +390,18 @@ func (s *GenericSegmenter) extractCategories(doc *types.ParsedDocument) []types.
 	}
 	
 	return categories
+}
+
+// makeUniqueID ensures an ID is unique by appending a suffix if needed
+func makeUniqueID(baseID string, seenIDs map[string]int) string {
+	seenIDs[baseID]++
+	count := seenIDs[baseID]
+	
+	if count == 1 {
+		return baseID
+	}
+	// Append suffix for duplicates: "1" -> "1-2", "1-3", etc.
+	return fmt.Sprintf("%s-%d", baseID, count)
 }
 
 // finalizeGuideline processes accumulated text for a guideline

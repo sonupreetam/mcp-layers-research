@@ -1,138 +1,172 @@
-# Gemara: GRC Engineering Model for Automated Risk Assessment  [![Go Reference](https://pkg.go.dev/badge/github.com/ossf/gemara.svg)](https://pkg.go.dev/github.com/ossf/gemara)
+# Layer 1 Pipeline Quick Start
 
-> Pronounced: Juh-MAH-ruh (think :gem:)
+This guide shows how to convert PDF compliance documents (like PCI DSS, NIST, GDPR) into machine-readable Layer 1 Gemara format.
 
-- [Overview](#overview)
-- [The Model](#the-model)
-  - [Layer 1: Guidance](#layer-1-guidance)
-    - [Layer 1 Schema](#layer-1-schema)
-  - [Layer 2: Controls](#layer-2-controls)
-    - [Layer 2 Schema](#layer-2-schema)
-  - [Layer 3: Policy](#layer-3-policy)
-    - [Layer 3 Schema](#layer-3-schema)
-  - [Layer 4: Evaluation](#layer-4-evaluation)
-    - [Layer 4 Schema](#layer-4-schema)
-  - [Layer 5: Enforcement](#layer-5-enforcement)
-  - [Layer 6: Audit](#layer-6-audit)
-- [Usage](#usage)
-- [Projects and tooling using Gemara](#projects-and-tooling-using-gemara)
-- [Contributing](#contributing)
+## Prerequisites
 
-## Overview
+- Go 1.21+
+- PDF document to convert
 
-Gemara (The _GRC Engineering Model for Automated Risk Assessment_) provides a logical model to describe the categories of compliance activities, how they interact, and the schemas to enable automated interoperability between them.
+## Build the Pipeline
 
-In order to better facilitate cross-functional communication, the Gemara Model seeks to outline the categorical layers of activities related to automated governance.
+```bash
+go build -o pipeline ./layer1/pipeline/cmd/pipeline
+```
 
-We will begin by establishing the overall model, and then the following sections will contain detailed breakdowns of each categorical layer, with examples.
+## Run Complete Pipeline
 
-This document assumes that the reader is trained in governance, risk, compliance, or cybersecurity and therefore understands or can find definitions of concepts or terms that are infrequently used herein.
+The fastest way to convert a PDF is using `run-all`:
 
-For the purpose of this document, "organization" may refer to a business or an organizational unit within it.
+```bash
+./pipeline run-all --input path/to/your.pdf --document-id my-doc-id --segmenter generic
+```
 
-## The Model
+### For PCI DSS Documents
 
-Each layer in the model builds upon the lower layer, though in higher-level use cases you may find examples where multiple lower layers are brought into a higher level together. Examples and clarifications can be found in the respective sections below.
+```bash
+./pipeline run-all --input PCI_DSS_v3-2-1.pdf --document-id pci-dss-3.2.1 --segmenter pci-dss
+```
 
-| Layer | Name | Description |
-|-------|------|-------------|
-| 1 | Guidance | High-level guidance on cybersecurity measures |
-| 2 | Controls | Technology-specific, threat-informed security controls |
-| 3 | Policy | Risk-informed guidance tailored to an organization |
-| 4 | Evaluation | Inspection of code, configurations, and deployments |
-| 5 | Enforcement | Prevention or remediation based on assessment findings |
-| 6 | Audit | Review of organizational policy and conformance |
+## Step-by-Step Conversion
 
-### Layer 1: Guidance
+### 1. Parse PDF
 
-The Guidance layer is the lowest level of the Gemara Model. Activities in this layer provide high-level rules pertaining to cybersecurity measures. Guidance is typically developed by industry groups, government agencies, or international standards bodies. Examples include the NIST Cybersecurity Framework, ISO 27001, PCI DSS, HIPPA, GDPR, and CRA. They are intended to be used as a starting point for organizations to develop their own cybersecurity programs.
+Extract text and structure from the PDF:
 
-Guidance frameworks or standards occasionally express their rules using the term "controls" — these should be understood as Layer 1 Controls in the event that the term appears to conflict with Layer 2.
+```bash
+./pipeline parse --input path/to/your.pdf --document-id my-doc-id
+```
 
-These guidance documents are high-level, abstract controls that may be referenced in the development of other Layer 1 or Layer 2 assets.
+**Options:**
+- `--parser simple` (default) - Built-in Go parser
+- `--parser docling` - Python-based docling parser (requires Python)
 
-#### Layer 1 Schema
+### 2. Segment
 
-The Gemara [Layer 1 Schema](./schemas/layer-1.cue) describes the machine-readable format of Layer 1 guidelines.
+Organize parsed content into categories and guidelines:
 
-Both simple and more complex, multipart guidelines can be expressed with associated recommendations. Guideline mappings or "crosswalk references" can be expressed, allowing correlation between multiple Layer 1 guidance documents.
+```bash
+./pipeline segment --document-id my-doc-id --segmenter generic
+```
 
-### Layer 2: Controls
+**Available segmenters:**
+| Segmenter | Use For |
+|-----------|---------|
+| `generic` | General compliance documents |
+| `pci-dss` | PCI DSS standards |
+| `nist-800-53` | NIST 800-53 controls |
 
-Activities in the Control layer produce technology-specific, threat-informed security controls. Controls are the specific guardrails that organizations put in place to protect their information systems. They are typically informed by the best practices and industry standards which are produced in Layer 1.
+### 3. Convert to Layer-1
 
-Layer 2 controls are typically developed by an organization for its own purposes, or for general use by industry groups, government agencies, or international standards bodies. Examples include [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks-overview), [FINOS Common Cloud Controls](https://github.com/finos/common-cloud-controls/blob/main/README.md), and the [Open Source Project Security (OSPS) Baseline](https://baseline.openssf.org/).
+Generate the final Layer 1 YAML/JSON output:
 
-Assets in this category may be refined into more specific Layer 2 controls, or combined with organizational risk considerations to form Layer 3 policies.
+```bash
+./pipeline convert --document-id my-doc-id --output my-document.yaml
+```
 
-The recommended process for developing Layer 2 controls is to first assess the technology's capabilities, then identify threats to those capabilities, and finally develop controls to mitigate those threats.
+**Options:**
+- `--format yaml` (default) or `--format json`
+- `--strict` - Enable strict schema validation (default: true)
 
-#### Layer 2 Schema
+## Optional: LLM Enhancement
 
-The Gemara [Layer 2 Schema](./schemas/layer-2.cue) describes the machine-readable format of Layer 2 controls.
+Improve extraction quality using an LLM:
 
-The schema allows controls to be mapped to threats or Layer 1 controls by their unique identifiers. Threats may also be expressed in the schema, with mappings to the technology-specific capabilities which may be vulnerable to the threat.
+```bash
+# Using OpenAI
+export LLM_API_KEY=your-openai-key
+./pipeline enhance --document-id my-doc-id --llm-provider openai
 
-The Gemara go module provides Layer 2 support for ingesting YAML and JSON documents that follow this schema.
+# Using Anthropic
+./pipeline enhance --document-id my-doc-id --llm-provider anthropic --llm-api-key your-key
+```
 
-The [cue](https://cuelang.org) CLI can be used to [validate YAML data](https://cuelang.org/docs/concept/how-cue-works-with-yaml/#validating-yaml-files-against-a-schema) containing a Layer 2 control catalog.
+## Validation & Analysis
 
-### Layer 3: Policy
+### Validate Output
 
-Activities in the Policy layer provide risk-informed governance rules that — while based on best practices and industry standards — are tailored to an organization.
+Check that the output conforms to Layer 1 schema:
 
-Layer 3 controls are typically developed by an organization to compile into organizational policies. Policies cannot be properly developed without consideration for organization-specific risk appetite and risk-acceptance.
+```bash
+# Validate from storage
+./pipeline validate --document-id my-doc-id
 
-These policy documents may be referenced by other policy documents, or used as a starting point for Layer 4 assessments.
+# Validate an external file
+./pipeline validate --validate-file ./my-document.yaml
+```
 
-#### Layer 3 Schema
+### Check Schema Coverage
 
-The Gemara [Layer 3 Schema](./schemas/layer-3.cue) describes the machine-readable format of Layer 3 policies. This allows for the programmatic validation and processing of policy documents, ensuring they adhere to a defined structure.
+Analyze what information was captured vs. what couldn't be mapped:
 
-### Layer 4: Evaluation
+```bash
+./pipeline coverage --document-id my-doc-id
+```
 
-Activities in the Evaluation layer provide inspection of code, configurations, and deployments. Those elements are part of the _software development lifecycle_ which is not represented in this model.
+## List Document Versions
 
-Evaluation activities may be built based on outputs from layers 2 or 3. While automated assessments are often developed by vendors or industry groups, robust evaluation should be informed by organizational policies in order to custom-tailor the assessment to the needs of the compliance program.
+View all stored versions of a processed document:
 
-#### Layer 4 Schema
+```bash
+./pipeline list --document-id my-doc-id
+```
 
-The Gemara [Layer 4 Schema](./schemas/layer-4.cue) describes the machine-readable format of Layer 4 evaluation results.
+## Storage Structure
 
-The schema allows evaluations to be mapped to Layer 2 controls by their unique identifiers.
+By default, data is stored in `./layer1/pipeline/test-data/`:
 
-The Gemara go module provides Layer 4 support for writing and executing assessments, which can produce results conforming to this schema.
+```
+test-data/
+├── intermediate/
+│   └── {document-id}/
+│       └── v{n}/
+│           ├── parsed.json          # Raw parsed output
+│           ├── metadata-parsed.json
+│           ├── segmented.json       # Segmented output
+│           └── metadata-segmented.json
+├── final/
+│   └── {document-id}.yaml           # Final Layer 1 output
+├── validation-reports/
+│   └── {document-id}/
+│       └── convert-{timestamp}.json # Validation reports
+└── coverage-reports/
+    └── {document-id}-{timestamp}.json
+```
 
-### Layer 5: Enforcement
+## Global Options
 
-Activities in the Enforcement layer provide prevention or remediation. These enforcement actions should be guided by Layer 3 policies and based on assessment findings from Layer 4 evaluations.
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--base-dir` | `./layer1/pipeline/test-data` | Storage directory |
+| `--verbose` | false | Enable detailed output |
+| `--source-version` | 0 (latest) | Use specific version |
 
-This layer ensures that the organization is complying with policy when evidence of noncompliance is found, such as by blocking the deployment of a resource that does not meet the organization's policies.
+## Example: Full Workflow
 
-### Layer 6: Audit
+```bash
+# 1. Build
+go build -o pipeline ./layer1/pipeline/cmd/pipeline
 
-Activities in the Audit layer provide a review of organizational policy and conformance.
+# 2. Parse a PDF
+./pipeline parse --input CRA_Regulation.pdf --document-id cra-2024
 
-Audits consider information from all of the lower layers. These activities are typically performed by internal or external auditors to ensure that the organization has designed and enforced effective policies based on the organization's requirements.
+# 3. Segment with generic segmenter
+./pipeline segment --document-id cra-2024 --segmenter generic
 
-## Usage
+# 4. Convert to Layer 1 YAML
+./pipeline convert --document-id cra-2024 --output cra-2024.yaml
 
-Install the go module with `go get github.com/ossf/gemara` and consult our [go docs](https://pkg.go.dev/github.com/ossf/gemara)
+# 5. Validate the output
+./pipeline validate --document-id cra-2024
 
-Use the schemas directly with [cue](https://cuelang.org/) for validating Gemara data payloads against the schemas and more.
+# 6. Check what was captured
+./pipeline coverage --document-id cra-2024
+```
 
-## Projects and tooling using Gemara
+## Troubleshooting
 
-Some Gemara use cases include:
+**"Parser failed"**: Ensure the PDF is text-based, not scanned images. Use `--parser docling` for better OCR support.
 
-- [FINOS Common Cloud Controls](https://www.finos.org/common-cloud-controls-project) (Layer 2)
-- [Open Source Project Security Baseline](https://baseline.openssf.org/) (Layer 2)
-- [Privateer](https://github.com/privateerproj/privateer) (Layer 4)
-  - ex. [OSPS Baseline Privateer Plugin](https://github.com/revanite-io/pvtr-github-repo)
+**"Segmentation empty"**: Try a different segmenter or use `--verbose` to see what's being parsed.
 
-## Contributing
-
-We're so glad you asked - see [CONTRIBUTING.md](/CONTRIBUTING.md) and if you have any questions or feedback head over to the OpenSSF Slack in [#gemara](https://openssf.slack.com/archives/C09A9PP765Q)
-
-You can also join the biweekly meeting on alternate Thursdays.  
-See Gemara Bi-Weekly Meeting on the [OpenSSF calendar](https://calendar.google.com/calendar/u/0?cid=czYzdm9lZmhwNWk5cGZsdGI1cTY3bmdwZXNAZ3JvdXAuY2FsZW5kYXIuZ29vZ2xlLmNvbQ) for details.
+**"Validation failed"**: Run `./pipeline validate --document-id X --verbose` to see specific schema errors.
