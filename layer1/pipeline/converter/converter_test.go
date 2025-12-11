@@ -170,3 +170,99 @@ func TestValidateLayer1(t *testing.T) {
 	}
 }
 
+func TestConvertAndValidate(t *testing.T) {
+	// Create a valid segmented document
+	validDoc := &types.SegmentedDocument{
+		Metadata: types.SegmentedMetadata{
+			DocumentID: "test-doc",
+		},
+		DocumentMetadata: types.DocumentMetadata{
+			ID:           "VALID-STD",
+			Title:        "Valid Standard",
+			Description:  "A valid test standard",
+			Author:       "Test Author",
+			DocumentType: "Standard",
+		},
+		Categories: []types.SegmentCategory{
+			{
+				ID:          "CAT-1",
+				Title:       "Category One",
+				Description: "First category description",
+				Guidelines: []types.SegmentGuideline{
+					{
+						ID:        "G-1",
+						Title:     "Guideline One",
+						Objective: "Test objective",
+						Parts: []types.SegmentPart{
+							{
+								ID:   "G-1.a",
+								Text: "Part A text content",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	conv := NewConverter()
+
+	t.Run("valid document passes validation", func(t *testing.T) {
+		layer1Doc, result, err := conv.ConvertAndValidate(validDoc, false)
+		if err != nil {
+			t.Fatalf("ConvertAndValidate failed: %v", err)
+		}
+		if !result.Valid {
+			t.Errorf("Expected validation to pass, got errors: %v", result.Errors)
+		}
+		if layer1Doc == nil {
+			t.Error("Expected non-nil layer1 document")
+		}
+	})
+
+	t.Run("valid document passes strict validation", func(t *testing.T) {
+		layer1Doc, result, err := conv.ConvertAndValidate(validDoc, true)
+		if err != nil {
+			t.Fatalf("ConvertAndValidate failed: %v", err)
+		}
+		if !result.Valid {
+			t.Errorf("Expected strict validation to pass, got errors: %v", result.Errors)
+		}
+		if layer1Doc == nil {
+			t.Error("Expected non-nil layer1 document")
+		}
+	})
+
+	t.Run("invalid document fails validation", func(t *testing.T) {
+		invalidDoc := &types.SegmentedDocument{
+			Metadata: types.SegmentedMetadata{
+				DocumentID: "invalid-doc",
+			},
+			DocumentMetadata: types.DocumentMetadata{
+				// Missing required fields
+				ID: "",
+			},
+			Categories: []types.SegmentCategory{},
+		}
+
+		_, result, err := conv.ConvertAndValidate(invalidDoc, false)
+		if err != nil {
+			t.Fatalf("ConvertAndValidate failed: %v", err)
+		}
+		if result.Valid {
+			t.Error("Expected validation to fail for invalid document")
+		}
+		if len(result.Errors) == 0 {
+			t.Error("Expected validation errors for invalid document")
+		}
+	})
+
+	t.Run("nil document returns error", func(t *testing.T) {
+		_, _, err := conv.ConvertAndValidate(nil, false)
+		if err == nil {
+			t.Error("Expected error for nil document")
+		}
+	})
+}
+
+

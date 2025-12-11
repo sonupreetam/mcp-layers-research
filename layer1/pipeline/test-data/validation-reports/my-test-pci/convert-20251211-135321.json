@@ -1,0 +1,9 @@
+{
+  "document_id": "my-test-pci",
+  "timestamp": "2025-12-11T13:53:21.492279+01:00",
+  "strict_mode": true,
+  "valid": true,
+  "error_count": 0,
+  "source_version": 1,
+  "stage": "convert"
+}

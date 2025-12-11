@@ -247,3 +247,4 @@ func (p *EnhancementPipeline) Process(ctx context.Context, data interface{}) (in
 	return current, nil
 }
 
+

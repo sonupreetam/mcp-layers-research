@@ -5,6 +5,7 @@ import (
 
 	"github.com/ossf/gemara/layer1"
 	"github.com/ossf/gemara/layer1/pipeline/types"
+	"github.com/ossf/gemara/layer1/pipeline/validator"
 )
 
 // Converter transforms segmented documents into Layer-1 format
@@ -130,96 +131,50 @@ func (c *DefaultConverter) convertPart(part *types.SegmentPart) layer1.Part {
 	}
 }
 
-// ValidateLayer1 validates a Layer-1 GuidanceDocument
+// ValidateLayer1 validates a Layer-1 GuidanceDocument using the schema validator
 func ValidateLayer1(doc *layer1.GuidanceDocument) error {
-	if doc == nil {
-		return fmt.Errorf("document is nil")
-	}
-	
-	// Validate metadata
-	if err := validateMetadata(&doc.Metadata); err != nil {
-		return fmt.Errorf("metadata validation failed: %w", err)
-	}
-	
-	// Validate categories
-	if len(doc.Categories) == 0 {
-		return fmt.Errorf("document must have at least one category")
-	}
-	
-	for i, cat := range doc.Categories {
-		if err := validateCategory(&cat, i); err != nil {
-			return err
-		}
-	}
-	
-	return nil
-}
-
-// validateMetadata validates Layer-1 Metadata
-func validateMetadata(meta *layer1.Metadata) error {
-	if meta.Id == "" {
-		return fmt.Errorf("metadata.id is required")
-	}
-	if meta.Title == "" {
-		return fmt.Errorf("metadata.title is required")
-	}
-	if meta.Description == "" {
-		return fmt.Errorf("metadata.description is required")
-	}
-	if meta.Author == "" {
-		return fmt.Errorf("metadata.author is required")
+	v := validator.NewValidator()
+	result := v.Validate(doc)
+	if !result.Valid {
+		return fmt.Errorf("validation failed: %s", result.Error())
 	}
 	return nil
 }
 
-// validateCategory validates Layer-1 Category
-func validateCategory(cat *layer1.Category, index int) error {
-	if cat.Id == "" {
-		return fmt.Errorf("category[%d].id is required", index)
+// ValidateLayer1Strict performs strict schema validation
+func ValidateLayer1Strict(doc *layer1.GuidanceDocument) error {
+	v := validator.NewValidator(validator.WithStrictMode(true))
+	result := v.Validate(doc)
+	if !result.Valid {
+		return fmt.Errorf("strict validation failed: %s", result.Error())
 	}
-	if cat.Title == "" {
-		return fmt.Errorf("category[%d].title is required", index)
-	}
-	if cat.Description == "" {
-		return fmt.Errorf("category[%d].description is required", index)
-	}
-	
-	for j, guide := range cat.Guidelines {
-		if err := validateGuideline(&guide, index, j); err != nil {
-			return err
-		}
-	}
-	
 	return nil
 }
 
-// validateGuideline validates Layer-1 Guideline
-func validateGuideline(guide *layer1.Guideline, catIndex, guideIndex int) error {
-	if guide.Id == "" {
-		return fmt.Errorf("category[%d].guideline[%d].id is required", catIndex, guideIndex)
-	}
-	if guide.Title == "" {
-		return fmt.Errorf("category[%d].guideline[%d].title is required", catIndex, guideIndex)
-	}
-	
-	for k, part := range guide.GuidelineParts {
-		if err := validatePart(&part, catIndex, guideIndex, k); err != nil {
-			return err
-		}
-	}
-	
-	return nil
+// ValidateWithResult returns the full validation result with details
+func ValidateWithResult(doc *layer1.GuidanceDocument) *validator.ValidationResult {
+	v := validator.NewValidator(validator.WithStrictMode(true))
+	return v.Validate(doc)
 }
 
-// validatePart validates Layer-1 Part
-func validatePart(part *layer1.Part, catIndex, guideIndex, partIndex int) error {
-	if part.Id == "" {
-		return fmt.Errorf("category[%d].guideline[%d].part[%d].id is required", catIndex, guideIndex, partIndex)
+// ConvertAndValidate converts a segmented document and validates the result
+func (c *DefaultConverter) ConvertAndValidate(doc *types.SegmentedDocument, strict bool) (*layer1.GuidanceDocument, *validator.ValidationResult, error) {
+	// First perform conversion
+	layer1Doc, err := c.Convert(doc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("conversion failed: %w", err)
 	}
-	if part.Text == "" {
-		return fmt.Errorf("category[%d].guideline[%d].part[%d].text is required", catIndex, guideIndex, partIndex)
+
+	// Then validate the result
+	var v *validator.Validator
+	if strict {
+		v = validator.NewValidator(validator.WithStrictMode(true))
+	} else {
+		v = validator.NewValidator()
 	}
-	
-	return nil
+
+	result := v.Validate(layer1Doc)
+	return layer1Doc, result, nil
 }
+
 

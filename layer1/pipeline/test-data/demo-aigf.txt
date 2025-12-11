@@ -1,0 +1,71 @@
+AI GOVERNANCE FRAMEWORK
+Version 1.0
+Draft for Public Comment
+
+Author: OpenSSF AI Security Working Group
+Publication Date: December 2025
+
+INTRODUCTION
+
+This AI Governance Framework provides comprehensive guidance for organizations
+developing, deploying, and maintaining artificial intelligence systems.
+
+1. Model Risk Management
+
+Organizations must implement comprehensive model risk management practices.
+
+1.1 Model Inventory and Classification
+
+Objective: Maintain a complete inventory of all AI/ML models.
+
+1.1.1 Document all AI/ML models currently in development or production use.
+
+1.1.2 Classify models based on criticality and potential impact.
+
+1.2 Model Validation
+
+Objective: Ensure all AI/ML models undergo rigorous validation.
+
+1.2.1 Implement independent model validation for high-risk models.
+
+1.2.2 Establish performance monitoring metrics and alert thresholds.
+
+2. Data Governance for AI
+
+Organizations must establish robust data governance practices for AI systems.
+
+2.1 Training Data Management
+
+Objective: Ensure training data quality and provenance tracking.
+
+2.1.1 Document the source and licensing terms for all training data.
+
+2.1.2 Implement data quality checks to identify bias and errors.
+
+2.2 Data Privacy and Protection
+
+Objective: Protect personal and sensitive data used in AI systems.
+
+2.2.1 Apply appropriate anonymization techniques for personal data.
+
+2.2.2 Implement access controls for training datasets.
+
+3. Transparency and Explainability
+
+AI systems must provide appropriate levels of transparency.
+
+3.1 Model Documentation
+
+Objective: Maintain comprehensive documentation of AI model capabilities.
+
+3.1.1 Create and maintain model cards describing intended use.
+
+3.1.2 Document key decisions made during model development.
+
+3.2 Explainability Requirements
+
+Objective: Enable stakeholders to understand AI decisions.
+
+3.2.1 Implement explainability mechanisms for the use case.
+
+3.2.2 Provide clear explanations when AI decisions impact individuals.
