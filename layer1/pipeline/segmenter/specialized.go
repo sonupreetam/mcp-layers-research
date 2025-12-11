@@ -103,9 +103,29 @@ func (s *PCIDSSSegmenter) enrichCategory(category *types.SegmentCategory) {
 		"12": "Maintain an Information Security Policy",
 	}
 	
-	if desc, ok := requirementDescriptions[category.ID]; ok {
+	// Extract base ID (e.g., "1" from "1-2" or "1")
+	baseID := category.ID
+	if idx := strings.Index(baseID, "-"); idx > 0 {
+		baseID = baseID[:idx]
+	}
+	
+	if desc, ok := requirementDescriptions[baseID]; ok {
 		if category.Description == "" {
 			category.Description = desc
+		}
+	}
+	
+	// If still no description, use a default based on title
+	if category.Description == "" {
+		if category.Title != "" {
+			// Use truncated title as description
+			desc := category.Title
+			if len(desc) > 200 {
+				desc = desc[:197] + "..."
+			}
+			category.Description = desc
+		} else {
+			category.Description = "PCI-DSS compliance requirement"
 		}
 	}
 	
@@ -198,4 +218,5 @@ func NewNIST80053Segmenter(config types.SegmenterConfig) (*NIST80053Segmenter, e
 func (s *NIST80053Segmenter) Name() string {
 	return "nist-800-53-v1.0"
 }
+
 
