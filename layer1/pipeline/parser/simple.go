@@ -13,6 +13,28 @@ import (
 	"github.com/ossf/gemara/layer1/pipeline/types"
 )
 
+// Pre-compiled regexes for performance
+var (
+	// Matches numbered headings like "1.", "1.1", "1.1.1", "1.1.1.1" followed by uppercase text
+	// Also matches ALL CAPS headings
+	headingRegex = regexp.MustCompile(`^([0-9]+\.)*[0-9]+\.?\s+[A-Z].*$|^[A-Z][A-Z\s]+$`)
+
+	// Matches list item markers
+	listRegex = regexp.MustCompile(`^\s*([0-9]+\.|[a-z]\.|•|\*|-)\s+`)
+
+	// Matches empty lines
+	emptyRegex = regexp.MustCompile(`^\s*$`)
+
+	// Matches TOC lines with dotted leaders (4+ consecutive dots)
+	tocDotPattern = regexp.MustCompile(`\.{4,}`)
+
+	// Matches numbered prefix for heading level detection (e.g., "1.", "1.1.", "1.1.1")
+	numberedPrefixRegex = regexp.MustCompile(`^([0-9]+\.)*[0-9]+`)
+
+	// Matches ordered list markers
+	orderedListRegex = regexp.MustCompile(`^[0-9]+\.`)
+)
+
 // SimpleParser uses pdftotext (poppler-utils) for basic PDF parsing
 type SimpleParser struct {
 	ParserBase
@@ -80,15 +102,7 @@ func (p *SimpleParser) Parse(filePath string) (*types.ParsedDocument, error) {
 // parseTextContent converts plain text into structured blocks
 func (p *SimpleParser) parseTextContent(content string) []types.Page {
 	lines := strings.Split(content, "\n")
-	
-	// Simple heuristics for structure detection
-	headingRegex := regexp.MustCompile(`^([0-9]+\.)+\s+[A-Z].*$|^[A-Z][A-Z\s]+$`)
-	listRegex := regexp.MustCompile(`^\s*([0-9]+\.|[a-z]\.|•|\*|-)\s+`)
-	emptyRegex := regexp.MustCompile(`^\s*$`)
-	
-	// Pattern to detect Table of Contents lines with dotted leaders
-	tocDotPattern := regexp.MustCompile(`\.{4,}`)  // 4+ consecutive dots
-	
+
 	var pages []types.Page
 	currentPage := types.Page{
 		PageNumber: 1,
@@ -186,10 +200,10 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 				currentPage.Blocks = append(currentPage.Blocks, *currentBlock)
 				currentText.Reset()
 			}
-			
+
 			// Create new list block
 			listType := "unordered"
-			if regexp.MustCompile(`^[0-9]+\.`).MatchString(matches[1]) {
+			if orderedListRegex.MatchString(matches[1]) {
 				listType = "ordered"
 			}
 			
@@ -235,14 +249,16 @@ func (p *SimpleParser) parseTextContent(content string) []types.Page {
 
 // detectHeadingLevel determines the heading level based on formatting
 func (p *SimpleParser) detectHeadingLevel(line string) int {
-	// Check for numbered headings (1., 1.1., 1.1.1., etc.)
-	if matches := regexp.MustCompile(`^([0-9]+\.)+`).FindString(line); matches != "" {
+	// Check for numbered headings (1., 1.1, 1.1.1, etc.)
+	if matches := numberedPrefixRegex.FindString(line); matches != "" {
+		// Count the dots to determine level (1.1 = 2, 1.1.1 = 3, etc.)
 		dots := strings.Count(matches, ".")
-		if dots > 0 && dots <= 6 {
-			return dots
+		level := dots + 1 // "1" = level 1, "1.1" = level 2, etc.
+		if level > 0 && level <= 6 {
+			return level
 		}
 	}
-	
+
 	// All caps likely level 1 or 2
 	trimmed := strings.TrimSpace(line)
 	if strings.ToUpper(trimmed) == trimmed {
@@ -251,7 +267,7 @@ func (p *SimpleParser) detectHeadingLevel(line string) int {
 		}
 		return 2
 	}
-	
+
 	return 3
 }
 
@@ -392,26 +408,19 @@ func normalizeWhitespace(text string) string {
 }
 
 // cleanText applies all text cleaning operations
+// Note: isPageHeaderFooter and isTableHeader checks are done in parseTextContent
+// before this function is called, so we don't duplicate them here
 func cleanText(text string) string {
 	// Skip if empty
 	if strings.TrimSpace(text) == "" {
 		return ""
 	}
-	
-	// Check if this is noise we should skip entirely
-	if isPageHeaderFooter(text) {
-		return ""
-	}
-	
-	if isTableHeader(text) {
-		return ""
-	}
-	
+
 	// Clean TOC dots
 	cleaned := cleanTOCDots(text)
-	
+
 	// Normalize whitespace
 	cleaned = normalizeWhitespace(cleaned)
-	
+
 	return cleaned
 }
