@@ -1,0 +1,41 @@
+{
+  "document_id": "my-full-run",
+  "timestamp": "2025-12-11T14:37:35.528776+01:00",
+  "source_stats": {
+    "total_pages": 137,
+    "total_blocks": 883,
+    "blocks_by_type": {
+      "heading": 36,
+      "list": 462,
+      "paragraph": 385
+    },
+    "total_characters": 343694
+  },
+  "captured_content": {
+    "categories": 45,
+    "guidelines": 71,
+    "parts": 140,
+    "recommendations": 33,
+    "fields_captured": [
+      "metadata.id",
+      "metadata.title",
+      "metadata.description",
+      "metadata.author",
+      "metadata.document_type"
+    ],
+    "fields_empty": []
+  },
+  "coverage_metrics": {
+    "block_coverage": 100,
+    "character_coverage": 0,
+    "required_fields_covered": 4,
+    "required_fields_total": 4,
+    "optional_fields_covered": 2,
+    "optional_fields_total": 4,
+    "overall_score": 90,
+    "quality_indicators": {
+      "content_capture": "comprehensive",
+      "overall": "excellent"
+    }
+  }
+}

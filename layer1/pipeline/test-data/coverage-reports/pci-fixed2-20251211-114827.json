@@ -1,0 +1,41 @@
+{
+  "document_id": "pci-fixed2",
+  "timestamp": "2025-12-11T11:48:27.497813+01:00",
+  "source_stats": {
+    "total_pages": 139,
+    "total_blocks": 1024,
+    "blocks_by_type": {
+      "heading": 36,
+      "list": 462,
+      "paragraph": 526
+    },
+    "total_characters": 468565
+  },
+  "captured_content": {
+    "categories": 46,
+    "guidelines": 60,
+    "parts": 125,
+    "recommendations": 45,
+    "fields_captured": [
+      "metadata.id",
+      "metadata.title",
+      "metadata.description",
+      "metadata.author",
+      "metadata.document_type"
+    ],
+    "fields_empty": []
+  },
+  "coverage_metrics": {
+    "block_coverage": 100,
+    "character_coverage": 0,
+    "required_fields_covered": 4,
+    "required_fields_total": 4,
+    "optional_fields_covered": 2,
+    "optional_fields_total": 4,
+    "overall_score": 90,
+    "quality_indicators": {
+      "content_capture": "comprehensive",
+      "overall": "excellent"
+    }
+  }
+}
