@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Run Baseline Action
-        uses: revanite-io/osps-baseline-action@ffcef1f33b6ee5b916c7e357e4ae1481b99b46b6 # v1.0.0
+        uses: revanite-io/osps-baseline-action@8417b9d0c0e789c3fe4e93996e47a3a8aafe6965 # v1.5.4
         with:
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
